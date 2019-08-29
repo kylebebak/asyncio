@@ -27,7 +27,7 @@ async def consume(q: asyncio.Queue) -> None:
         q.task_done()
 
 
-async def main():
+async def main() -> None:
     q: asyncio.Queue = asyncio.Queue()
     producers = [asyncio.create_task(produce(n, q)) for n in range(5)]
     consumer = asyncio.create_task(consume(q))
