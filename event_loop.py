@@ -1,5 +1,8 @@
 # https://stackoverflow.com/questions/49005651/how-does-asyncio-actually-work
-from typing import Any, BinaryIO
+# https://docs.python.org/3/library/select.html#select.select
+
+from typing import BinaryIO, Coroutine, Dict, List, Tuple
+import sys
 import time
 import select
 
@@ -16,82 +19,96 @@ class AsyncSleep:
         yield self
 
     def __repr__(self):
-        return "%s(until=%.1f)" % (self.__class__.__name__, self.until)
+        return f"{self.__class__.__name__}, until={self.until}"
 
 
 class AsyncRead:
-    def __init__(self, file: BinaryIO, amount=1):
+    def __init__(self, file: BinaryIO, amount: int):
         self.file = file
         self.amount = amount
-        self._buffer = b''
+        self._buffer = b""
 
-    def __await__(self) -> Any:
+    def __await__(self):
         while len(self._buffer) < self.amount:
             # keep reading until `amount` of bytes have been read
             yield self
             # we only get here if ``read`` should not block
-            self._buffer += self.file.read(1)
+            self._buffer += self.file.read(10)
         return self._buffer
 
     def __repr__(self):
-        return '%s(file=%s, amount=%d, progress=%d)' % (
-            self.__class__.__name__, self.file, self.amount, len(self._buffer)
+        return "%s(file=%s, amount=%d, progress=%d)" % (
+            self.__class__.__name__,
+            self.file,
+            self.amount,
+            len(self._buffer),
         )
 
 
-def run(*coroutines):
-    """Cooperatively run all ``coroutines`` until completion"""
-    waiting_read = {}  # Dict[file, coroutine]
-    waiting = [(0, coroutine) for coroutine in coroutines]
+def run(*coroutines: Coroutine):
+    """
+    Cooperatively run all `coroutines` until completion
+    """
+
+    waiting: List[Tuple[float, Coroutine]] = [
+        (0, coroutine) for coroutine in coroutines
+    ]
+
+    waiting_read: Dict[BinaryIO, Coroutine] = {}
+
     while waiting or waiting_read:
-        # 2. wait until the next coroutine may run or read ...
+        # Wait until the next sleep coroutine may run, or read coroutine may read
         try:
             until, coroutine = waiting.pop(0)
         except IndexError:
-            until, coroutine = float('inf'), None
-            readable, _, _ = select.select(list(waiting_read), [], [])
-        else:
-            to_wait = max(0.0, until - time.time())
-            readable, _, _ = select.select(list(waiting_read), [], [], to_wait)
-        # ... and select the appropriate one
-        if readable and time.time() < until:
-            if until and coroutine:
+            continue
+
+        to_wait = max(0.0, until - time.time())
+        # `select` blocks for up to to_wait seconds to ensure we don't spin
+        readable, _, _ = select.select(waiting_read.keys(), [], [], to_wait)
+
+        if time.time() < until:
+            # This is a sleep coroutine, but we haven't slept for our amount of time yet...
+            if readable:
+                # So, if there's readable data, get a read coroutine instead, and put in back onto waiting list
                 waiting.append((until, coroutine))
                 waiting.sort()
-            coroutine = waiting_read.pop(readable[0])
-        # 3. run this coroutine
+                coroutine = waiting_read.pop(readable[0])
+
+        # Run this coroutine until it yields again or finishes (read a bit of data, or consume the sleep coroutine)
         try:
             command = coroutine.send(None)
         except StopIteration:
             continue
-        # 1. sort coroutines by their desired suspension ...
+
+        # Sort coroutines by their desired suspension...
         if isinstance(command, AsyncSleep):
             waiting.append((command.until, coroutine))
             waiting.sort(key=lambda item: item[0])
-        # ... or register reads
+        # ...Or register reads
         elif isinstance(command, AsyncRead):
             waiting_read[command.file] = coroutine
 
 
-async def asleep(duration: float):
-    """await that ``duration`` seconds pass"""
-    await AsyncSleep(time.time() + duration)
-
-
-async def sleepy(identifier: str = "coroutine", count=5):
+async def sleep(identifier: str = "coroutine", count: int = 5):
     for i in range(count):
-        print(identifier, "step", i + 1, "at %.2f" % time.time())
-        await asleep(0.1)
+        print(f"{identifier} step {i + 1} at {time.time()}")
+        await AsyncSleep(time.time() + 0.1)
 
 
-async def ready(path, amount=1024*32) -> None:
-    print('read', path, 'at', '%d' % time.time())
-    with open(path, 'rb') as file:
+async def read(path, amount: int = 1024 * 32) -> None:
+    print(f"read {path} at {time.time()}")
+    with open(path, "rb") as file:
         result = await AsyncRead(file, amount)
-    print('done', path, 'at', '%d' % time.time())
-    print('got', len(result), 'B')
+    print(f"done {path} at {time.time()}")
+    print(f"got {len(result)} B")
 
 
-run(sleepy('background', 5), ready('/dev/urandom', 1024*128))
-
-run(*(sleepy(f"coroutine {j+1}") for j in range(5)))
+# Cooperatively run all coroutines until completion
+sleep_count = int(sys.argv[1]) if len(sys.argv) > 1 else 10
+run(
+    read("/dev/urandom", 1024),
+    sleep("background", sleep_count),
+    sleep("background", sleep_count),
+    sleep("background", sleep_count),
+)
