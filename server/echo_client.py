@@ -7,7 +7,7 @@ PORT = 65432  # The port used by the server
 count = 0
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.connect((HOST, PORT))
+    s.connect_ex((HOST, PORT))
 
     while True:
         s.sendall(f"Hello {count}".encode())
