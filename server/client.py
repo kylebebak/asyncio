@@ -11,6 +11,9 @@ messages = [b"Message 1 from client.", b"Message 2 from client."]
 
 
 def start_connections(host: str, port: int, num_conns: int):
+    """
+    Get a "client" socket by connecting to server address, and register client socket with selector so we can read from it / write to it to talk to server
+    """
     server_addr = (host, port)
     for i in range(0, num_conns):
         connid = i + 1
@@ -46,7 +49,7 @@ def service_connection(key: selectors.SelectorKey, mask: int):
             data.outb = data.messages.pop(0)
         if data.outb:
             print("sending", repr(data.outb), "to connection", data.connid)
-            sent = sock.send(data.outb)  # Should be ready to write
+            sent = sock.send(data.outb)  # Should be ready to write, we can send at least **some** bytes without blocking at all
             data.outb = data.outb[sent:]
 
 
