@@ -2,7 +2,6 @@
 https://www.youtube.com/watch?v=Y4Gt3Xjd7G8
 https://stackoverflow.com/questions/34469060/python-native-coroutines-and-send
 http://www.dabeaz.com/coroutines/
-https://snarky.ca/how-the-heck-does-async-await-work-in-python-3-5/
 """
 
 # sequential
